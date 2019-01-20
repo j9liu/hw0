@@ -1,8 +1,10 @@
-import {vec3} from 'gl-matrix';
+import {vec3, vec4} from 'gl-matrix';
 import * as Stats from 'stats-js';
 import * as DAT from 'dat-gui';
 import Icosphere from './geometry/Icosphere';
 import Square from './geometry/Square';
+import Cube from './geometry/Cube';
+import Drawable from './rendering/gl/Drawable';
 import OpenGLRenderer from './rendering/gl/OpenGLRenderer';
 import Camera from './Camera';
 import {setGL} from './globals';
@@ -12,18 +14,27 @@ import ShaderProgram, {Shader} from './rendering/gl/ShaderProgram';
 // This will be referred to by dat.GUI's functions that add GUI elements.
 const controls = {
   tesselations: 5,
+  shape: 'icosphere',
+  shaderName: 'lambert',
+  lambertR: 200,
+  lambertG: 25,
+  lambertB: 25,
   'Load Scene': loadScene, // A function pointer, essentially
 };
 
 let icosphere: Icosphere;
 let square: Square;
+let cube: Cube;
 let prevTesselations: number = 5;
+let time: number = 0;
 
 function loadScene() {
   icosphere = new Icosphere(vec3.fromValues(0, 0, 0), 1, controls.tesselations);
-  icosphere.create();
+  icosphere.create()
   square = new Square(vec3.fromValues(0, 0, 0));
   square.create();
+  cube = new Cube(vec3.fromValues(0, 0, 0));
+  cube.create();
 }
 
 function main() {
@@ -38,6 +49,11 @@ function main() {
   // Add controls to the gui
   const gui = new DAT.GUI();
   gui.add(controls, 'tesselations', 0, 8).step(1);
+  gui.add(controls, 'shape', ['icosphere', 'cube']);
+  gui.add(controls, 'shaderName', ['lambert', 'fixed gradient', 'noise']);
+  gui.add(controls, 'lambertR', 0, 255).step(1);
+  gui.add(controls, 'lambertG', 0, 255).step(1);
+  gui.add(controls, 'lambertB', 0, 255).step(1);
   gui.add(controls, 'Load Scene');
 
   // get canvas and webgl context
@@ -59,10 +75,20 @@ function main() {
   renderer.setClearColor(0.2, 0.2, 0.2, 1);
   gl.enable(gl.DEPTH_TEST);
 
+  const gradient = new ShaderProgram([
+    new Shader(gl.VERTEX_SHADER, require('./shaders/gradient-vert.glsl')),
+    new Shader(gl.FRAGMENT_SHADER, require('./shaders/gradient-frag.glsl'))
+  ]);
+
   const lambert = new ShaderProgram([
     new Shader(gl.VERTEX_SHADER, require('./shaders/lambert-vert.glsl')),
-    new Shader(gl.FRAGMENT_SHADER, require('./shaders/lambert-frag.glsl')),
+    new Shader(gl.FRAGMENT_SHADER, require('./shaders/lambert-frag.glsl'))
   ]);
+
+  const noise = new ShaderProgram([
+    new Shader(gl.VERTEX_SHADER, require('./shaders/noise-vert.glsl')),
+    new Shader(gl.FRAGMENT_SHADER, require('./shaders/noise-frag.glsl'))
+  ]); 
 
   // This function will be called every frame
   function tick() {
@@ -76,11 +102,43 @@ function main() {
       icosphere = new Icosphere(vec3.fromValues(0, 0, 0), 1, prevTesselations);
       icosphere.create();
     }
-    renderer.render(camera, lambert, [
-      icosphere,
+
+    let toDraw :Drawable;
+    let shader :ShaderProgram;
+
+    switch(controls.shape) {
+      case 'icosphere':
+        cube.destroy();
+        toDraw = icosphere;
+        break;
+      case 'cube':
+        icosphere.destroy();
+        toDraw = cube;
+        break;
+    }
+
+    switch(controls.shaderName) {
+      case 'lambert':
+        shader = lambert;
+        break;
+      case 'fixed gradient':
+        shader = gradient;
+        break;
+      case 'noise':
+        shader = noise;
+        break;
+    }
+
+    toDraw.create();
+
+    renderer.render(camera, shader, [
+      toDraw,
       // square,
-    ]);
+    ], vec4.fromValues(controls.lambertR/255.0, controls.lambertG/255.0, controls.lambertB/255.0, 1),
+    time);
     stats.end();
+
+    time++;
 
     // Tell the browser to call `tick` again whenever it renders a new frame
     requestAnimationFrame(tick);
